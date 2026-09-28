@@ -92,6 +92,13 @@ python3 scripts/run.py render '/本次输出目录'
 
 ## 交付文件
 
+v0.2.0 起默认同时生成杂志版与标准版，优先分享杂志版：
+
+- `report-master.html`：米白纸感、红色强调的杂志版离线网页，完整统计时间，重要结论附可展开的消息来源。
+- `report-master.png`：同风格中文长图；超长时输出 `report-master-02.png` 等编号分图，按 `master-validation.json` 清单交付全部。
+
+以下标准文件继续保留：
+
 - `messages.json`：群及时间范围、计数、结构化消息、稳定消息 ID。
 - `messages.txt`：完整可读消息及已解析卡片字段。
 - `report.json`：有真实消息 ID 引用的结构化总结。
@@ -100,6 +107,17 @@ python3 scripts/run.py render '/本次输出目录'
 - `report.png`：中文长图；过长时另有 `report-02.png` 等，按 `validation.json` 清单交付全部。
 
 区分建议、决定、收到、同意和执行完成。待办的负责人及期限没有明确依据时写“未明确”。未解析的图片、视频、语音和表情只标类型；仅使用消息内已有语音转写并注明来源。群内自述不等于外部核实事实。
+
+可选的 `master.json` 仅调整标题、副标题和按真实消息 ID 选择的时间线；统计、结论和待办始终来自校验后的原始导出与 `report.json`。字段见 [杂志版配置](references/master-schema.md)。旧版上传模板中的自定义统计、正文等覆盖字段会明确拒绝，需迁移到规范的 `report.json`，避免展示与来源不一致。
+
+```sh
+# 只重绘杂志版，不重新读取微信
+python3 scripts/render_master.py '/已有输出目录'
+# 只生成原标准版
+python3 scripts/run.py render '/已有输出目录' --standard-only
+```
+
+升级已有 Skill 时，先把旧 Skill 移到技能目录之外备份，再从更新后的完整项目运行 `python3 scripts/install_skill.py`。不要删除项目虚拟环境或账号钥匙串项；此次版式升级不需要重新初始化微信。
 
 ## 数据处理与限制
 

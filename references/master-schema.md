@@ -1,0 +1,27 @@
+# 杂志版排版与数据契约
+
+默认 `scripts/run.py render '/导出目录'` 在标准版通过后，同时生成 `report-master.html`、`report-master.png`，长内容按编号分图。优先交付杂志版 HTML、全部 PNG 分图及 `summary.md`，原标准六文件保留。
+
+单独重排已有报告：
+
+```sh
+python3 '/实际Skill目录/scripts/render_master.py' '/导出目录'
+```
+
+入口自动使用项目虚拟环境。支持 `--project '/完整项目目录'`、`--master '/策展文件路径'` 与 `--only html|png`。校验 messages.json / report.json 后才渲染，不读取微信或钥匙串。结果清单写入 `master-validation.json`，只交付本次返回的文件，避免旧分图混入。
+
+可选 `master.json` 仅控制以下字段；不提供时自动根据已校验报告生成：
+
+| 字段 | 类型与用途 |
+| --- | --- |
+| `kicker` | 不超过 120 字符的封面眉题 |
+| `title_main` | 不超过 120 字符的封面标题，默认完整群名 |
+| `title_accent` | 不超过 120 字符的强调标题文本 |
+| `subtitle` | 不超过 120 字符的副标题 |
+| `timeline` | 不重复的实际消息 ID 数组；显示对应原始时间、发言人和正文，自动按导出顺序排序 |
+
+所有标题仅为排版，不得额外暗示原文没有的结论。统计数字始终取 messages.json；概览、待办、话题、已确认、未解决和其他信息始终取 report.json，保留对应消息来源。修改总结请先修改 report.json 并完成语义核对。
+
+旧策展格式的 `stats`、`lede`、`todos`、`topics`、`confirmed`、`unresolved` 等事实覆盖字段会明确报错。原时间线的 `[时间, 发言人, 事件]` 文本数组改为真实消息 ID，避免伪造时间或失去来源。正文均为纯文本，`<b>` 等标签不会作为 HTML 执行。
+
+网页来源默认折叠；不依赖 JavaScript、远程字体或 CDN。PNG 采用本机字体，保留来源编号和完整含时区窗口；长内容分图标明总张数，单个超长卡片拆成连续文字块，不静默裁切。排版校验不能证明语义支持，仍由当前智能体逐项核对。

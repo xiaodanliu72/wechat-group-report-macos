@@ -23,5 +23,8 @@ report.json
 report*.png
 summary.md
 index.html
+report-master.html
+master.json
+master-validation.json
 *.zip
 *.tar.gz

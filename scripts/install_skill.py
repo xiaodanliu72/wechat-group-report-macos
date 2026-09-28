@@ -6,7 +6,7 @@ import os
 import shutil
 from pathlib import Path
 
-FILES=('SKILL.md','agents/openai.yaml','references/report-schema.md','scripts/run.py')
+FILES=('SKILL.md','agents/openai.yaml','references/report-schema.md','references/master-schema.md','scripts/run.py','scripts/render_master.py')
 
 def install(project,destination):
     project=Path(project).resolve();destination=Path(destination).expanduser().absolute()

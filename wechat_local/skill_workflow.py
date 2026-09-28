@@ -82,9 +82,17 @@ def main():
     pre.add_argument('folder',type=caller_path);pre.add_argument('--batch-chars',type=int,default=6000)
     rd=sub.add_parser('read',help='输出一个完整批次；智能体必须依次读完全部批次')
     rd.add_argument('folder',type=caller_path);rd.add_argument('--part',type=int,required=True)
-    re_=sub.add_parser('render',help='验证智能体编写的 report.json 并生成六文件')
+    re_=sub.add_parser('render',help='验证智能体编写的 report.json 并生成标准版与杂志版')
     re_.add_argument('folder',type=caller_path);re_.add_argument('--report',type=caller_path)
+    re_.add_argument('--standard-only',action='store_true',help='仅输出原标准版；默认同时生成杂志版')
+    re_.add_argument('--master',type=caller_path)
+    master=sub.add_parser('render-master',help='校验现有总结后生成杂志版 HTML 与 PNG')
+    master.add_argument('folder',type=caller_path);master.add_argument('--master',type=caller_path)
+    master.add_argument('--only',choices=['html','png'])
     a=ap.parse_args()
+    if a.action=='render-master':
+        from .master import render as render_master
+        print(json.dumps(render_master(a.folder,a.master,a.only),ensure_ascii=False));return
     if a.action=='read':print(read_part(a.folder,a.part),end='');return
     if a.action=='prepare':
         m=prepare(a.folder,a.batch_chars);print(json.dumps({'directory':str(a.folder.resolve()),'message_count':m['message_count'],'part_count':m['part_count'],'manifest':str(a.folder.resolve()/'review/manifest.json')},ensure_ascii=False));return
@@ -93,6 +101,13 @@ def main():
         render(folder,json.loads(report.read_text()))
         validation=json.loads((folder/'validation.json').read_text())
         names=['messages.json','messages.txt','report.json','summary.md','index.html',*validation['png_files']]
+        if not a.standard_only:
+            from .master import render as render_master
+            enhanced=render_master(folder,a.master)
+            validation['master_files']=[Path(p).name for p in enhanced['files']]
+            validation['preferred_html']='report-master.html'
+            names+=validation['master_files']
+            dump(folder/'validation.json',validation)
         if any(not (folder/name).is_file() for name in names):raise RuntimeError('交付文件不完整')
         print(json.dumps({'ok':True,'files':[str(folder/n) for n in names],'validation':validation},ensure_ascii=False));return
     name=a.group or input('请输入完整群名：').strip()

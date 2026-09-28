@@ -57,6 +57,8 @@ python3 '/实际Skill目录/scripts/run.py' read '/本次输出绝对路径' --p
 python3 '/实际Skill目录/scripts/run.py' render '/本次输出绝对路径'
 ```
 
-检查退出码、`validation` 和完整文件清单。程序核验统计、时间边界、阅读覆盖和引用存在性；由智能体逐项核对结论的语义支持。打开离线 HTML 检查排版与来源展开，查看 PNG 中文、长段落及底部有无截断/重叠。过长时按清单交付所有编号分图并说明原因。
+默认同时生成标准版与杂志版，优先交付杂志版。阅读 [master-schema.md](references/master-schema.md) 了解可选封面和消息时间线；不配置也能自动排版。`master.json` 只控制展示，不能覆盖统计、结论、负责人或状态。跨日窗口必须保留完整起止日期，来源可在杂志版 HTML 直接展开核对。需要单独重新排版时用 `scripts/render_master.py`，仅需原标准版时显式加 `--standard-only`。
 
-六类输出：`messages.json`、`messages.txt`、`report.json`、`summary.md`、`index.html`、`report.png`（可能有后续分图）。优先给用户 HTML、PNG、Markdown 的绝对路径链接，附实际时间范围、数量和同步限制。不要自动部署或发送他人，不默认展开全部原始聊天。
+检查退出码、`validation` / `master-validation.json` 和本次完整文件清单。程序核验统计、时间边界、阅读覆盖和引用存在性；由智能体逐项核对结论的语义支持。打开离线 HTML 检查排版与来源展开，查看 PNG 中文、长段落及底部有无截断/重叠。过长时按清单交付所有编号分图并说明原因，不把目录中上次遗留的分图算作本次结果。
+
+输出保留 `messages.json`、`messages.txt`、`report.json`、`summary.md`、`index.html`、`report.png`，新增 `report-master.html` 和 `report-master.png`（两版都可能有后续分图）。优先给用户杂志版 HTML、全部杂志版 PNG、Markdown 的绝对路径链接，附实际时间范围、数量和同步限制。不要自动部署或发送他人，不默认展开全部原始聊天。用户明确要求公开报告时，先确定授权范围；即使只发布 HTML，其中仍可能含昵称、业务信息和消息摘录。
