@@ -1,0 +1,4 @@
+interface:
+  display_name: "微信群聊读取与总结"
+  short_description: "读取本人 Mac 微信指定群聊与时间范围，生成可核对来源的中文总结、网页和长图"
+  default_prompt: "使用 $wechat-group-report 读取我指定微信群昨天全天的本地已同步消息，完整总结并生成 PNG、HTML 和 Markdown。"
