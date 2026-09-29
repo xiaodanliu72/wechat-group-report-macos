@@ -40,7 +40,7 @@ class MasterTests(unittest.TestCase):
         for master in [{'stats':[{'num':999}]},{'lede':'凭空结论'},{'timeline':['nonexistent']},{'timeline':[['12:00','某人','事件']]},{'title_main':42}]:
             with self.subTest(master=master),self.assertRaises(ValueError):build_master(self.data,self.report,master)
         m=build_master(self.data,self.report,{})
-        self.assertEqual(m['todos'][0]['cls'],'')
+        self.assertNotEqual(m['todos'][0]['cls'],'urgent')
         self.assertEqual(m['todos'][0]['meta'][-1],['状态','未完成',''])
 
     def test_safe_static_html_full_window_sources_and_other(self):
@@ -69,7 +69,7 @@ class MasterTests(unittest.TestCase):
         m=build_master(self.data,self.report,{})
         renderer=Png();recorded=[]
         original=renderer.b_lede
-        def capture(text):recorded.append(text);return original(text)
+        def capture(text,**kwargs):recorded.append(text);return original(text,**kwargs)
         renderer.b_lede=capture
         files=renderer.render(self.folder,m)
         self.assertGreater(len(files),1)
@@ -86,3 +86,25 @@ class MasterTests(unittest.TestCase):
         self.assertTrue(value['ok']);self.assertEqual(len(value['files']),8)
         self.assertTrue(all(Path(p).is_file() for p in value['files']))
         self.assertEqual(value['validation']['preferred_html'],'report-master.html')
+
+    def test_mac_serif_font_and_cited_editorial_layout(self):
+        from wechat_local.master import SONGTI
+        renderer=Png()
+        if Path(SONGTI).is_file():
+            self.assertEqual(renderer.f_title.getname(),('Songti SC','Black'))
+            self.assertEqual(renderer.f_h3.getname(),('Songti SC','Bold'))
+        self.report['topics'][0]['text']='复核安排：建议明天复核，尚未完成。'
+        m=build_master(self.data,self.report,{})
+        self.assertEqual(m['topics'][0]['title'],'复核安排')
+        self.assertIn('尚未完成',m['topics'][0]['body'])
+        self.assertIn('〔来源 1〕',m['topics'][0]['body'])
+        self.assertIn('2026-09-27',m['date_label']);self.assertIn('2026-09-28',m['date_label'])
+
+    def test_timeline_excerpt_keeps_full_original_in_html(self):
+        self.data['messages'][0]['text']='原文'*100+'必须核对的结尾'
+        m=build_master(self.data,self.report,{'timeline':[self.mid]})
+        self.assertIn('摘录，全文见来源',m['timeline'][0][2])
+        self.assertIn('必须核对的结尾',render_html(self.folder,m).read_text())
+        renderer=Png();height,draw=renderer.b_timeline(m['timeline'])
+        im=renderer.Image.new('RGB',(renderer.WIDTH,height+512));end=draw(renderer.ImageDraw.Draw(im),0)
+        self.assertLessEqual(end,im.height)

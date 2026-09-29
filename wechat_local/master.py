@@ -14,6 +14,7 @@ import argparse
 import datetime as dt
 import html as html_lib
 import json
+import re
 import sys
 from pathlib import Path
 
@@ -22,7 +23,7 @@ PAPER = '#f6f2ea'; PAPER2 = '#efe9dc'; INK = '#191713'; INK_SOFT = '#4a463d'
 INK_FAINT = '#8a8478'; LINE = '#d9d2c2'; RED = '#b3261e'; RED_DEEP = '#8e1a14'
 GOLD = '#a97e2f'; GREEN = '#2e6b4f'; WHITE = '#ffffff'
 
-SONGTI = '/System/Library/Fonts/Songti.ttc'
+SONGTI = '/System/Library/Fonts/Supplemental/Songti.ttc'
 HIRAGINO = '/System/Library/Fonts/Hiragino Sans GB.ttc'
 
 WEEKDAYS = '星期一 星期二 星期三 星期四 星期五 星期六 星期日'.split()
@@ -55,7 +56,7 @@ def build_master(data, report, master=None):
     date_cn, weekday, _ = fmt_date(md['start'])
     m = dict(master)
     for key, default in [('kicker', '群聊纪要 · 来源可核对'), ('title_main', md['group_name']),
-                         ('title_accent', ''), ('subtitle', '讨论纪要')]:
+                         ('title_accent', ''), ('subtitle', '一日纪要' if (dt.datetime.fromisoformat(md['end'])-dt.datetime.fromisoformat(md['start'])).total_seconds() <= 86400 else '讨论纪要')]:
         if key in master and (not isinstance(master[key], str) or len(master[key]) > 120):
             raise ValueError(key + ' 必须是不超过 120 字符的文本')
         m.setdefault(key, default)
@@ -70,17 +71,30 @@ def build_master(data, report, master=None):
                   {'num': tc.get('文本', 0), 'label': '文本'},
                   {'num': tc.get('图片', 0), 'label': '图片'},
                   {'num': tc.get('卡片', 0), 'label': '卡片 / 文件'}]
+    m['date_label'] = date_cn + ' · ' + weekday if md['start'][:10] == md['end'][:10] else md['start'][:10] + ' — ' + md['end'][:10]
+    m['window_label'] = ' 至 '.join(dt.datetime.fromisoformat(md[k]).strftime('%Y-%m-%d %H:%M:%S') for k in ('start','end'))
+    m['timezone'] = md['timezone']
+    m['stats'][0]['hot'] = True
     m['_data'], m['_report'] = data, report
     m['_sequence'] = {item['id']: i for i, item in enumerate(data['messages'], 1)}
     def cited(item):
         refs = '、'.join(str(m['_sequence'][r]) for r in item['sources'])
         return item['text'] + ('〔来源 ' + refs + '〕' if refs else '')
     m['lede'] = cited(report['overview'])
-    m['todos'] = [{'cls': '', 'tag': '待办', 't': cited(t), 'meta': [
-        ['负责人', t['owner'], ''], ['时限', t['deadline'], ''], ['状态', t['status'], '']
-    ]} for t in report['todos']]
-    m['topics'] = [{'chip': '议题', 'title': '议题 ' + str(i), 'body': cited(t)}
-                   for i, t in enumerate(report['topics'], 1)]
+    m['todos'] = []
+    for t in report['todos']:
+        # Date emphasis is typographic. Never infer urgency or completion from substrings.
+        has_deadline = t['deadline'] != '未明确'
+        tag = t['deadline'] if len(t['deadline']) <= 12 else '时限见下方'
+        m['todos'].append({'cls': 'warn' if has_deadline else '', 'tag': tag if has_deadline else '待办',
+                          't': cited(t), 'meta': [['负责人', t['owner'], ''],
+                          ['时限', t['deadline'], 'dl' if has_deadline else ''], ['状态', t['status'], '']]})
+    m['topics'] = []
+    for i,t in enumerate(report['topics'],1):
+        prefix, sep, rest = t['text'].partition('：')
+        title = prefix if sep and len(prefix) <= 28 else t['text'][:22] + ('…' if len(t['text']) > 22 else '')
+        body = cited(dict(t, text=rest)) if sep and len(prefix) <= 28 else cited(t)
+        m['topics'].append({'chip': f'{i:02d}', 'title': title, 'body': body})
     for key in ('confirmed', 'unresolved', 'other'): m[key] = [cited(t) for t in report[key]]
     ids = master.get('timeline', [])
     if not isinstance(ids, list) or any(not isinstance(x, str) for x in ids) or len(set(ids)) != len(ids):
@@ -88,7 +102,7 @@ def build_master(data, report, master=None):
     byid = {item['id']: item for item in data['messages']}
     if any(mid not in byid for mid in ids): raise ValueError('时间线引用不存在的消息')
     m['timeline'] = [[byid[mid]['time'], byid[mid]['sender'],
-                      byid[mid]['text'] + '〔来源 ' + str(m['_sequence'][mid]) + '〕', False]
+                      (byid[mid]['text'][:120] + '…〔摘录，全文见来源〕' if len(byid[mid]['text']) > 120 else byid[mid]['text']) + '〔来源 ' + str(m['_sequence'][mid]) + '〕', False]
                      for mid in sorted(ids, key=lambda x: m['_sequence'][x])]
     m['_timeline_ids'] = ids
     return m
@@ -201,9 +215,40 @@ footer{padding:30px 20px}.todo,.panel{padding:20px}.cover .kicker span{letter-sp
 @media(prefers-reduced-motion:reduce){*{scroll-behavior:auto!important;transition:none!important}}
 """
 
+CSS += """
+.cover-top{display:flex;align-items:flex-start;gap:24px;min-height:102px}
+.cover-top .kicker{flex:1;min-width:0}
+.cover .seal{display:flex;position:static;flex:0 0 92px;width:92px;height:92px;margin-top:-12px;transform:rotate(5deg)}
+.cover .subtitle{color:var(--ink)}.number{color:var(--red-deep);font-weight:700}
+.todo .tag{position:absolute;top:-12px;right:18px;margin:0;max-width:70%;overflow-wrap:anywhere}
+.todo .source{font-size:11px}.topic .source{font-size:11px}.scope-note{font-size:12px;color:var(--ink-faint);margin-top:12px}
+.timeline{padding-left:126px}.timeline::before{display:block;left:101px}
+.tl-item .t{position:absolute;left:-126px;width:84px;top:16px;text-align:right;white-space:pre-line}
+.tl-item .node{left:-29px}.tl-item{border:0}.stat.hot .num{color:var(--red)}
+@media(max-width:600px){.cover .seal{flex-basis:68px;width:68px;height:68px;font-size:18px}.cover-top{min-height:86px}
+.timeline{padding-left:88px}.timeline::before{left:69px}.tl-item .t{left:-88px;width:60px;font-size:12px}.tl-item .node{left:-23px}
+.todo .tag{font-size:10px}.cover .date-big{font-size:19px;letter-spacing:.03em}}
+"""
+
 
 def esc(s):
     return html_lib.escape(str(s), quote=True)
+
+
+def text_runs(text):
+    """Only renderer-authored emphasis; all source strings remain literal text."""
+    pattern = r'〔来源 [^〕]*〕|\d+(?:[./:]\d+)*(?:[%年月日点家条个分号])'
+    start = 0
+    for match in re.finditer(pattern,text):
+        if match.start() > start: yield text[start:match.start()], 'plain'
+        yield match.group(), 'ref' if match.group().startswith('〔来源 ') else 'number'
+        start = match.end()
+    if start < len(text): yield text[start:], 'plain'
+
+
+def rich_html(text):
+    return ''.join(('<strong class="number">' + esc(value) + '</strong>') if style == 'number' else esc(value)
+                   for value,style in text_runs(text))
 
 
 def render_html(folder, m):
@@ -221,36 +266,38 @@ def render_html(folder, m):
         return '<details class="source"><summary>核对来源（' + str(len(ids)) + ' 条）</summary>' + ''.join(articles) + '</details>'
     def section(n, title, body):
         return '<section class="wrap"><div class="sec-head"><span class="no">' + str(n) + '</span><h2>' + title + '</h2></div>' + body + '</section>'
-    stats = ''.join('<div class="stat"><div class="num">' + str(x['num']) + '</div><div class="lbl">' + esc(x['label']) + '</div></div>' for x in m['stats'])
+    stats = ''.join('<div class="stat' + (' hot' if x.get('hot') else '') + '"><div class="num">' + str(x['num']) + '</div><div class="lbl">' + esc(x['label']) + '</div></div>' for x in m['stats'])
     parts = ['<div class="wrap"><div class="stats">' + stats + '</div></div>']
-    parts.append(section(1, '讨论速览', '<p class="lede">' + esc(report['overview']['text']) + '</p>' + refs(report['overview']['sources'])))
+    parts.append(section(1, '讨论速览', '<p class="lede">' + rich_html(report['overview']['text']) + '</p>' + refs(report['overview']['sources'])))
     n = 2
     if m['timeline']:
-        timeline = ''.join('<div class="tl-item"><div class="t">' + esc(row[0]) + '</div><div class="who">' + esc(row[1]) + '</div><div class="what">' + esc(row[2]) + '</div>' + refs([mid]) + '</div>' for row, mid in zip(m['timeline'], sorted(m['_timeline_ids'], key=lambda x:m['_sequence'][x])))
+        timeline = ''.join('<div class="tl-item"><div class="t">' + esc(dt.datetime.fromisoformat(row[0]).strftime('%m-%d\n%H:%M')) + '</div><span class="node"></span><div class="who">' + esc(row[1]) + '</div><div class="what">' + esc(row[2]) + '</div>' + refs([mid]) + '</div>' for row, mid in zip(m['timeline'], sorted(m['_timeline_ids'], key=lambda x:m['_sequence'][x])))
         parts.append(section(n, '消息时间线', '<div class="timeline">' + timeline + '</div>')); n += 1
-    todos = ''.join('<div class="todo"><span class="tag">待办</span><h3>' + esc(t['text']) + '</h3><dl class="meta">' +
-                    ''.join('<dt>' + k + '</dt><dd>' + esc(t[field]) + '</dd>' for k, field in [('负责人','owner'),('时限','deadline'),('状态','status')]) +
-                    '</dl>' + refs(t['sources']) + '</div>' for t in report['todos'])
+    todos = ''.join('<div class="todo ' + style['cls'] + '"><span class="tag">' + esc(style['tag']) + '</span><h3>' + esc(t['text']) + '</h3><dl class="meta">' +
+                    ''.join('<dt>' + k + '</dt><dd class="' + ('dl' if field=='deadline' and style['cls'] else '') + '">' + esc(t[field]) + '</dd>' for k,field in [('负责人','owner'),('时限','deadline'),('状态','status')]) +
+                    '</dl>' + refs(t['sources']) + '</div>' for t,style in zip(report['todos'],m['todos']))
     parts.append(section(n, '重点任务清单', '<div class="todos">' + (todos or '<p>未提取到有明确依据的事项。</p>') + '</div>')); n += 1
     panels = []
     for key, title in [('confirmed','群内已确认事项'), ('unresolved','尚未解决的问题')]:
-        rows = ''.join('<li>' + esc(t['text']) + refs(t['sources']) + '</li>' for t in report[key])
-        panels.append('<div class="panel"><h3>' + title + '</h3><ul>' + (rows or '<li>未提取到有明确依据的事项。</li>') + '</ul></div>')
+        rows = ''.join('<li>' + rich_html(t['text']) + refs(t['sources']) + '</li>' for t in report[key])
+        panels.append('<div class="panel ' + ('ok' if key=='confirmed' else 'open') + '"><h3>' + title + '</h3><ul>' + (rows or '<li>未提取到有明确依据的事项。</li>') + '</ul></div>')
     parts.append(section(n, '确认事项与未解决问题', '<div class="duo">' + ''.join(panels) + '</div>')); n += 1
-    for key, title in [('topics','议题详解'), ('other','其他信息')]:
-        rows = ''.join('<div class="topic"><div class="side"><span class="chip">' + str(i) + '</span><h3>' + title + '</h3></div><div class="body">' + esc(t['text']) + refs(t['sources']) + '</div></div>' for i,t in enumerate(report[key],1))
-        parts.append(section(n,title,rows or '<p>未提取到有明确依据的事项。</p>')); n += 1
-    scope = m['window'] + '（Asia/Shanghai，包含起点、不包含终点）'
+    rows = ''.join('<div class="topic"><div class="side"><span class="chip">' + esc(t['chip']) + '</span><h3>' + esc(t['title']) + '</h3></div><div class="body">' + rich_html(t['body'].split('〔来源 ',1)[0]) + refs(item['sources']) + '</div></div>' for t,item in zip(m['topics'],report['topics']))
+    parts.append(section(n,'议题详解',rows or '<p>未提取到有明确依据的事项。</p>')); n+=1
+    rows=''.join('<p>' + rich_html(t['text']) + '</p>' + refs(t['sources']) for t in report['other'])
+    parts.append(section(n,'其他信息',rows or '<p>未提取到有明确依据的事项。</p>'))
+    scope = m['window_label'] + '（' + m['timezone'] + '，包含起点、不包含终点）'
     note = m['scope'] + ' 群内陈述未作外部核实；未解析媒体仅标记类型。'
     if m['partial']: note += ' 请求范围尚未结束，本次不是完整时段。'
+    cover_note = '本机已同步记录 · 不代表群完整历史' + (' · 当日尚未结束，非完整全天' if m['partial'] else '')
     title = esc(m['title_main']) + '<em>' + esc(m['title_accent']) + '</em>'
     doc = ('<!doctype html><html lang="zh-CN"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">'
            '<meta http-equiv="Content-Security-Policy" content="default-src \'none\'; style-src \'unsafe-inline\'; img-src data:; base-uri \'none\'">'
            '<title>' + esc(m['group']) + ' · 聊天纪要</title><style>' + CSS.replace('__NCOL__','5') + '</style></head><body>'
            '<div class="masthead"><div class="brand">' + esc(m['group']) + '</div><div class="issue">聊天纪要 · 带来源可核对</div></div>'
-           '<header class="cover"><div class="kicker"><span class="dot"></span><span>' + esc(m['kicker']) + '</span></div><h1>' + title + '<br>' + esc(m['subtitle']) + '</h1>'
-           '<div class="date-big">' + esc(m['date_cn']) + '</div><p class="scope">' + esc(scope) + '</p><p>' + esc(note) + '</p></header>' + ''.join(parts) +
-           '<footer><div class="inner"><div class="colophon">' + esc(m['group']) + ' · 聊天纪要</div><p>' + esc(scope + '；群 ID：' + m['group_id'] + '；' + note) + '</p></div></footer></body></html>')
+           '<header class="cover"><div class="cover-top"><div class="kicker"><span class="dot"></span><span>' + esc(m['kicker']) + '</span></div><div class="seal">群聊<br>纪要</div></div><h1>' + title + '<br>' + esc(m['subtitle']) + '</h1>'
+           '<div class="date-big">' + esc(m['date_label']) + '</div><p class="scope">' + esc(scope) + '</p><p class="scope-note">' + esc(cover_note) + '</p></header>' + ''.join(parts) +
+           '<footer><div class="inner"><div class="colophon">' + esc(m['group']) + ' · 聊天纪要</div><p>' + esc(m['window'] + '；' + scope + '；群 ID：' + m['group_id'] + '；' + note) + '</p></div></footer></body></html>')
     out = Path(folder) / 'report-master.html'; out.write_text(doc, encoding='utf-8')
     return out
 
@@ -268,7 +315,7 @@ class Png:
         self.ImageFont = ImageFont
 
         def F(path, idx, size):
-            candidates=[path,HIRAGINO,'/System/Library/Fonts/PingFang.ttc','/System/Library/Fonts/STHeiti Medium.ttc']
+            candidates=[path,('/System/Library/Fonts/Songti.ttc' if path == SONGTI else HIRAGINO),HIRAGINO,'/System/Library/Fonts/PingFang.ttc','/System/Library/Fonts/STHeiti Medium.ttc']
             for candidate in dict.fromkeys(candidates):
                 if not Path(candidate).is_file():continue
                 for index in dict.fromkeys([idx,0]):
@@ -326,24 +373,39 @@ class Png:
 
     def b_cover(self,m):
         width=self.WIDTH-2*self.MARGIN
-        titles=self.wrap(m['title_main']+m['title_accent'],self.f_title,width)
-        subtitles=self.wrap(m['subtitle'],self.f_sub,width)
-        kicks=self.wrap(m['kicker'],self.f_kick,width)
-        note=m['window']+'（Asia/Shanghai，包含起点、不包含终点）\n'+m['scope']
-        if m['partial']:note+=' 请求范围尚未结束，本次不是完整时段。'
-        scope=self.wrap(note,self.f_small,width)
-        h=50+len(kicks)*34+24+len(titles)*112+len(subtitles)*60+30+len(scope)*34+35
+        titles=self.wrap(m['title_main']+m['title_accent'],self.f_title,width-164)
+        subtitles=self.wrap(m['subtitle'],self.f_title,width)
+        # Reserve an independent top band for the seal instead of placing it over the title.
+        kicks=self.wrap(m['kicker'],self.f_kick,width-190)
+        band=max(64,len(kicks)*38+26)
+        dates=self.wrap(m['date_label'],self.f_sub,width)
+        scope=self.wrap('统计窗口 '+m['window_label']+'（'+m['timezone']+'，左闭右开）',self.f_small,width-44)
+        note=('截至本次统计时刻，尚非完整时段 · ' if m['partial'] else '')+'本机已同步记录 · 不代表群完整历史'
+        note_lines=self.wrap(note,self.f_small,width)
+        height=48+band+20+(len(titles)+len(subtitles))*110+24+len(dates)*58+24+len(scope)*34+28+len(note_lines)*32+38
         def draw(d,y):
-            y+=50
-            for line in kicks:d.text((self.MARGIN,y),line,font=self.f_kick,fill=RED);y+=34
+            y+=48;top=y
+            d.ellipse((self.MARGIN,y+9,self.MARGIN+13,y+22),fill=RED)
+            for line in kicks:
+                x=self.MARGIN+28
+                spacing=min(8,max(0,(width-220-self.tw(line,self.f_kick))/max(len(line),1)))
+                for ch in line:d.text((x,y),ch,font=self.f_kick,fill=RED);x+=self.tw(ch,self.f_kick)+spacing
+                y+=38
+            sx=self.WIDTH-self.MARGIN-128
+            d.rounded_rectangle((sx,top-8,sx+128,top+120),radius=12,outline=RED,width=3)
+            for label,dy in [('群聊',8),('纪要',58)]:
+                d.text((sx+64-self.tw(label,self.f_h2)/2,top+dy),label,font=self.f_h2,fill=RED)
+            y=top+band+20
+            for line in titles+subtitles:d.text((self.MARGIN,y),line,font=self.f_title,fill=INK);y+=110
             y+=24
-            for line in titles:d.text((self.MARGIN,y),line,font=self.f_title,fill=INK);y+=112
-            for line in subtitles:d.text((self.MARGIN,y),line,font=self.f_sub,fill=RED_DEEP);y+=60
-            y+=30
-            for line in scope:d.text((self.MARGIN,y),line,font=self.f_small,fill=INK_SOFT);y+=34
-            return y+35
-        return h,draw
-
+            for line in dates:d.text((self.MARGIN,y),line,font=self.f_sub,fill=INK_SOFT);y+=58
+            y+=24;box_h=len(scope)*34+22
+            d.rounded_rectangle((self.MARGIN,y,self.WIDTH-self.MARGIN,y+box_h),radius=22,fill=WHITE,outline=LINE,width=1)
+            for line in scope:d.text((self.MARGIN+22,y+8),line,font=self.f_small,fill=INK_SOFT);y+=34
+            y+=28
+            for line in note_lines:d.text((self.MARGIN,y),line,font=self.f_small,fill=INK_FAINT);y+=32
+            return y+38
+        return height,draw
 
     def b_stats(self, stats):
         cw = self.WIDTH - 2 * self.MARGIN
@@ -380,50 +442,67 @@ class Png:
             return y + 8
         return h, draw
 
-    def b_lede(self,text):
-        lines=self.wrap(text,self.f_body,self.WIDTH-2*self.MARGIN)
+    def b_lede(self,text,dropcap=True):
+        width=self.WIDTH-2*self.MARGIN
+        body,sep,refs=text.partition('〔来源 ')
+        if not dropcap:
+            lines=self.wrap(text,self.f_small,width)
+            def draw(d,y):
+                y+=12
+                for line in lines:d.text((self.MARGIN,y),line,font=self.f_small,fill=INK_SOFT);y+=36
+                return y+12
+            return 24+len(lines)*36,draw
+        first=body[:1];rest=body[1:]
+        # A real two-line drop cap reserves both rows; the next row cannot run underneath it.
+        rows=[]
+        for i in range(2):
+            if not rest:break
+            line=self.wrap(rest,self.f_body,width-76)[0]
+            rows.append((76,line));rest=rest[len(line):]
+            if rest.startswith('\n'):rest=rest[1:]
+        if rest:rows.extend((0,line) for line in self.wrap(rest,self.f_body,width))
+        if not rows:rows=[(76,'')]
+        ref_lines=self.wrap('来源 '+refs.rstrip('〕'),self.f_small,width) if sep else []
+        h=40+max(2,len(rows))*46+len(ref_lines)*30+16
         def draw(d,y):
-            y+=16
-            for line in lines:d.text((self.MARGIN,y),line,font=self.f_body,fill=INK);y+=44
+            y+=20;top=y
+            if first:d.text((self.MARGIN,y-8),first,font=self.f_num,fill=RED)
+            for offset,line in rows:d.text((self.MARGIN+offset,y),line,font=self.f_body,fill=INK);y+=46
+            y=max(y,top+92)
+            if ref_lines:y+=10
+            for line in ref_lines:d.text((self.MARGIN,y),line,font=self.f_small,fill=INK_FAINT);y+=30
             return y+16
-        return 32+len(lines)*44,draw
+        return h,draw
 
-
-    def b_timeline(self, items):
-        cw = self.WIDTH - 2 * self.MARGIN - 130
-        parts, h = [], 20
-        for it in items:
-            t, who, what = it[0], it[1], it[2]
-            key = len(it) > 3 and it[3]
-            lines = self.wrap(what, self.f_body, cw)
-            bh = max(40, len(lines) * 40 + 34)
-            parts.append((t, who, lines, key, bh))
-            h += bh
-        h += 20
-
-        def draw(d, y):
-            y += 20
-            x_time = self.MARGIN
-            x_line = self.MARGIN + 96
-            y0 = y
-            for t, who, lines, key, bh in parts:
-                col = RED if key else INK_SOFT
-                d.text((x_time + 66 - self.tw(t, self.f_smallb), y + 2), t, font=self.f_smallb, fill=col)
-                d.ellipse((x_line - 6, y + 10, x_line + 6, y + 22), fill=(RED if key else PAPER), outline=(RED if key else INK_FAINT), width=3)
-                d.text((x_line + 30, y), who, font=self.f_smallb, fill=GOLD)
-                yy = y + 32
-                for ln in lines:
-                    d.text((x_line + 30, yy), ln, font=self.f_body, fill=INK)
-                    yy += 40
-                y += bh
-            d.line((x_line, y0 + 14, x_line, y - 14), fill=LINE, width=2)
-            return y + 20
-        return h, draw
+    def b_timeline(self,items):
+        width=self.WIDTH-2*self.MARGIN-170
+        parts=[]
+        for timestamp,who,what,key in items:
+            stamp=dt.datetime.fromisoformat(timestamp)
+            who_lines=self.wrap(who,self.f_smallb,width)
+            lines=self.wrap(what,self.f_small,width)
+            h=max(102,len(who_lines)*32+len(lines)*34+22)
+            parts.append((stamp,who_lines,lines,h))
+        def draw(d,y):
+            y+=20;x=self.MARGIN+120
+            d.line((x,y+12,x,y+sum(p[3] for p in parts)-20),fill=LINE,width=2)
+            for stamp,who_lines,lines,h in parts:
+                d.text((self.MARGIN,y),stamp.strftime('%m-%d'),font=self.f_small,fill=INK_FAINT)
+                d.text((self.MARGIN,y+30),stamp.strftime('%H:%M'),font=self.f_smallb,fill=RED)
+                d.ellipse((x-5,y+12,x+5,y+22),fill=RED)
+                yy=y
+                for line in who_lines:d.text((x+28,yy),line,font=self.f_smallb,fill=GOLD);yy+=32
+                for line in lines:d.text((x+28,yy),line,font=self.f_small,fill=INK);yy+=34
+                y+=h
+            return y+10
+        return 30+sum(p[3] for p in parts),draw
 
     def b_todo(self, todo):
         cw = self.WIDTH - 2 * self.MARGIN
         inner = cw - 2 * 34
-        title_lines = self.wrap(todo['t'], self.f_h3, inner - 130)
+        body,sep,refs=todo['t'].partition('〔来源 ')
+        title_lines=self.wrap(body,self.f_h3,inner-50)
+        ref_lines=self.wrap('来源 '+refs.rstrip('〕'),self.f_small,inner) if sep else []
         meta_rows = []
         for k, v, c in todo['meta']:
             vlines = self.wrap(v, self.f_small, inner - 110)
@@ -431,7 +510,7 @@ class Png:
         body_h = 30 + len(title_lines) * 46 + 12
         for _, vlines, _ in meta_rows:
             body_h += len(vlines) * 34 + 6
-        body_h += 26
+        body_h += 26 + len(ref_lines)*30
         h = 14 + body_h + 22
         accent = {'urgent': RED, 'warn': GOLD}.get(todo['cls'], INK)
 
@@ -458,6 +537,7 @@ class Png:
                     d.text((x0 + 34 + 96, yy), vln, font=fnt, fill=col)
                     yy += 34
                 yy += 6
+            for line in ref_lines:d.text((x0+34,yy),line,font=self.f_small,fill=INK_FAINT);yy+=30
             return y + 8 + body_h + 22
         return h, draw
 
@@ -473,7 +553,6 @@ class Png:
             x0, x1 = self.MARGIN, self.WIDTH - self.MARGIN
             d.rectangle((x0, y, x1, y + body_h), fill=WHITE, outline=LINE, width=1)
             d.rectangle((x0, y, x0 + 8, y + body_h), fill=accent)
-            mark = '✓' if mode == 'ok' else '?'
             if mode == 'ok':
                 d.line([(x0+34,y+44),(x0+43,y+54),(x0+62,y+30)],fill=accent,width=3)
             else:d.text((x0+34,y+26),'?',font=self.f_h3,fill=accent)
@@ -491,8 +570,12 @@ class Png:
         return h, draw
 
     def _rich_runs(self,text):
-        return [(ch,self.f_small,INK_SOFT) for ch in text]
-
+        chars=[]
+        for value,style in text_runs(text):
+            font=self.f_smallb if style=='number' else self.f_small
+            color=RED_DEEP if style=='number' else INK_FAINT if style=='ref' else INK_SOFT
+            chars.extend((ch,font,color) for ch in value)
+        return chars
 
     def _rich_layout(self, chars, width):
         """按宽度把富文本字符序列折行为 [[(ch,font,color)]]。"""
@@ -568,7 +651,7 @@ class Png:
         if m['timeline']:
             heading('消息时间线','TIMELINE')
             for row in m['timeline']:
-                text=' · '.join(row[:3]);add(self.b_lede(text),text)
+                text=' · '.join(row[:3]);add(self.b_timeline([row]),text)
         heading('重点任务清单','TO-DO')
         for todo in m['todos']:
             text=todo['t']+'\n'+'\n'.join(k+'：'+v for k,v,_ in todo['meta'])
@@ -576,12 +659,13 @@ class Png:
         if not m['todos']:add(self.b_lede('未提取到有明确依据的事项。'),'')
         heading('确认事项与未解决问题','STATUS')
         for key,title,mode in [('confirmed','群内已确认事项','ok'),('unresolved','尚未解决的问题','open')]:
-            for text in m[key] or ['未提取到有明确依据的事项。']:add(self.b_panel(title,[text],mode),title+'\n'+text)
+            items=m[key] or ['未提取到有明确依据的事项。']
+            add(self.b_panel(title,items,mode),title+'\n'+'\n'.join(items))
         heading('议题详解','TOPICS')
         for topic in m['topics']:add(self.b_topic(topic),topic['title']+'\n'+topic['body'])
         if not m['topics']:add(self.b_lede('未提取到有明确依据的事项。'),'')
         heading('其他信息','OTHER')
-        for text in m['other'] or ['未提取到有明确依据的事项。']:add(self.b_lede(text),text)
+        for text in m['other'] or ['未提取到有明确依据的事项。']:add(self.b_lede(text,dropcap=False),text)
         add(self.b_footer(m),m['window']+'\n'+m['scope'])
         return self.blocks
 

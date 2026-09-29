@@ -92,7 +92,7 @@ python3 scripts/run.py render '/本次输出目录'
 
 ## 交付文件
 
-v0.2.0 起默认同时生成杂志版与标准版，优先分享杂志版：
+v0.2.1 保留大师风格杂志版的字体与布局；默认同时生成杂志版与标准版，优先分享杂志版：
 
 - `report-master.html`：米白纸感、红色强调的杂志版离线网页，完整统计时间，重要结论附可展开的消息来源。
 - `report-master.png`：同风格中文长图；超长时输出 `report-master-02.png` 等编号分图，按 `master-validation.json` 清单交付全部。
