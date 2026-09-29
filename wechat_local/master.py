@@ -306,7 +306,7 @@ def render_html(folder, m):
 class Png:
     WIDTH = 1240
     MARGIN = 76
-    PAGE_MAX = 12000
+    PAGE_MAX = 16000
 
     def __init__(self):
         from PIL import Image, ImageDraw, ImageFont

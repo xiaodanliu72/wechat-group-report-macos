@@ -1,6 +1,6 @@
 # 杂志版排版与数据契约
 
-默认 `scripts/run.py render '/导出目录'` 在标准版通过后，同时生成 `report-master.html`、`report-master.png`，长内容按编号分图。优先交付杂志版 HTML、全部 PNG 分图及 `summary.md`，原标准六文件保留。
+默认 `scripts/run.py render '/导出目录'` 在标准版通过后，同时生成 `report-master.html`、`report-master.png`，优先输出完整单张长图；默认单图高度上限 16000 像素，超长时按版块边界编号分图。优先交付杂志版 HTML、全部 PNG 分图及 `summary.md`，原标准六文件保留。
 
 单独重排已有报告：
 

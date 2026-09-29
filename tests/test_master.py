@@ -108,3 +108,14 @@ class MasterTests(unittest.TestCase):
         renderer=Png();height,draw=renderer.b_timeline(m['timeline'])
         im=renderer.Image.new('RGB',(renderer.WIDTH,height+512));end=draw(renderer.ImageDraw.Draw(im),0)
         self.assertLessEqual(end,im.height)
+
+    def test_report_above_old_height_limit_stays_one_clear_image(self):
+        self.report['topics'][0]['text']='计划复核，'*3000+'末尾仍然保留'
+        renderer=Png()
+        files=renderer.render(self.folder,build_master(self.data,self.report,{}))
+        self.assertEqual(len(files),1)
+        with Image.open(files[0]) as im:
+            self.assertEqual(im.width,1240)
+            self.assertGreater(im.height,12000)
+            self.assertLessEqual(im.height,16000)
+            self.assertEqual(im.getpixel((5,im.height-50)),(25,23,19))
