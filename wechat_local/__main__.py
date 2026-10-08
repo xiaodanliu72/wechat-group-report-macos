@@ -17,14 +17,14 @@ def main():
     doctor=sub.add_parser('doctor');doctor.add_argument('--app',type=Path)
     a=p.parse_args()
     if a.cmd=='doctor':
-        import platform,plistlib
+        import platform,plistlib,shutil
         from .preparation import find_app
         app=find_app(a.app)/'Contents/Info.plist'
         info=plistlib.loads(app.read_bytes())
         root=Path.home()/'Library/Containers/com.tencent.xinWeChat/Data/Documents/xwechat_files'
         try:accounts=[x.name for x in root.iterdir() if (x/'db_storage').is_dir()];access=True
         except OSError:accounts=[];access=False
-        print(json.dumps({'platform':platform.platform(),'wechat':info.get('CFBundleShortVersionString'),'data_access':access,'account_directories':accounts,'note':'doctor 仅检查本机环境；不证明取钥、读取或总结成功'},ensure_ascii=False,indent=2));return 0 if access else 2
+        print(json.dumps({'platform':platform.platform(),'wechat':info.get('CFBundleShortVersionString'),'data_access':access,'account_directories':accounts,'wxgf_decoder_available':bool(shutil.which('ffmpeg')),'note':'doctor 仅检查本机环境；不证明取钥、读取或总结成功'},ensure_ascii=False,indent=2));return 0 if access else 2
     if a.cmd=='render':render(a.directory,json.loads(Path(a.report).read_text()));return 0
     if a.cmd in ('export-keychain','keychain'):
         from .preparation import select_account
@@ -48,7 +48,7 @@ def main():
     keys=json.load(sys.stdin)
     try:data=read(a.db_root,keys,name,a.group_id,start,end)
     finally:keys.clear()
-    export_files(a.out,data)
+    export_files(a.out,data,account=Path(a.db_root).parent)
     print(json.dumps({'ok':True,'message_count':data['metadata']['message_count'],'output':a.out,'next':'由 Codex 读完全部 messages.json，编写带引用 report.json，再执行 render'},ensure_ascii=False))
     return 0
 

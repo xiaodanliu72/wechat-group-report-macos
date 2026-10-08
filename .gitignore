@@ -28,3 +28,6 @@ master.json
 master-validation.json
 *.zip
 *.tar.gz
+
+# Decoded chat images are private outputs, including custom output directories.
+media/

@@ -9,9 +9,10 @@
 | 项目 | 已验证范围 |
 | --- | --- |
 | Mac | Apple Silicon，原生 arm64 |
-| 系统与客户端 | macOS 27.0 / 微信 4.1.13，仅一台设备现场验证 |
+| 系统与客户端 | macOS 27.0 / 27.0.1、微信 4.1.13，仅一台设备现场验证 |
 | 运行环境 | Python 3.14.5、SQLCipher 4.19.0、Xcode Command Line Tools |
 | 数据 | 微信 4 的本地 `xwechat_files`、联系人库及数字消息分片 |
+| 图片 | macOS V2 加密图片、WXGF/HEVC 转 PNG；FFmpeg 8.1.1 现场验证 |
 | 日常读取 | 本机钥匙串复用，三个真实读取回合各成功；未启动第二个客户端 |
 
 其他 macOS/微信版本尚未验证。首次初始化仅实现 Apple Silicon；Intel、Rosetta、Windows 不支持该取钥入口。微信升级、数据库重建或新分片可能使已保存密钥失效，届时停止，不自动重新登录。
@@ -31,7 +32,7 @@ cd wechat-group-report-macos
 
 ```sh
 xcode-select --install  # 已安装 Command Line Tools 时跳过
-brew install python@3.14 sqlcipher
+brew install python@3.14 sqlcipher ffmpeg
 python3.14 -m venv .venv
 .venv/bin/python -m pip install -r requirements.txt
 ```
@@ -92,7 +93,7 @@ python3 scripts/run.py render '/本次输出目录'
 
 ## 交付文件
 
-v0.2.2 保留大师风格杂志版的字体与布局，优先输出完整单张长图；默认同时生成杂志版与标准版，优先分享杂志版：
+v0.3.0 增加聊天图片读取，保留大师风格杂志版的字体与布局，优先输出完整单张长图；默认同时生成杂志版与标准版，优先分享杂志版：
 
 - `report-master.html`：米白纸感、红色强调的杂志版离线网页，完整统计时间，重要结论附可展开的消息来源。
 - `report-master.png`：同风格中文长图，默认高度上限 16000 像素，保持文字大小和完整内容；超长时按版块边界输出 `report-master-02.png` 等编号分图，按 `master-validation.json` 清单交付全部。
@@ -100,6 +101,7 @@ v0.2.2 保留大师风格杂志版的字体与布局，优先输出完整单张�
 以下标准文件继续保留：
 
 - `messages.json`：群及时间范围、计数、结构化消息、稳定消息 ID。
+- `media/manifest.json` 与 `media/`：逐张图片状态、来源 ID、尺寸、哈希及已解码图片。
 - `messages.txt`：完整可读消息及已解析卡片字段。
 - `report.json`：有真实消息 ID 引用的结构化总结。
 - `summary.md`：中文总结及来源编号。
@@ -117,7 +119,24 @@ python3 scripts/render_master.py '/已有输出目录'
 python3 scripts/run.py render '/已有输出目录' --standard-only
 ```
 
-升级已有 Skill 时，先把旧 Skill 移到技能目录之外备份，再从更新后的完整项目运行 `python3 scripts/install_skill.py`。不要删除项目虚拟环境或账号钥匙串项；此次版式升级不需要重新初始化微信。
+升级已有 Skill 时，先把旧 Skill 移到技能目录之外备份，再从更新后的完整项目运行 `python3 scripts/install_skill.py`。不要删除项目虚拟环境或账号钥匙串项；此次升级不需要重新初始化微信；只替换 Skill 不会更新读取代码，必须同时更新完整项目。
+
+## 图片读取与总结
+
+日常导出默认尝试读取所选群、所选时间窗内的图片。V2 加密图片使用当前账号已有的 macOS 缓存信息在内存中解密；WXGF/HEVC 经本机 FFmpeg 转成 PNG，普通 PNG/JPEG 经完整像素校验后保留。不会启动第二个微信、扫码、读取进程内存或自动访问图片 CDN；不保存图片解密参数。
+
+`images.ready` 仅表示图片可打开。当前智能体需逐张实际看图，再结合消息文本总结；脚本不自带视觉模型/OCR，也不要求额外 API Key。不支持看图的智能体只能交付图片并说明内容未识别。图片中的文字与主张仍需审慎核对来源。
+
+标准和杂志版 HTML 在折叠来源中嵌入被引用的图片，单个 HTML 可离线打开；分享时会包含这些图片。PNG 继续输出总结长图。未经下载、已清理、未同步或不支持格式的图片保留 `unavailable` 及原因，不能据此认定群内没有图片或相关事项未完成。
+
+- `exact_media_cache_missing`：没有精确匹配的本地文件；在微信打开所需图片后，重新导出同一时间窗到新目录。
+- `encrypted_image_key_unavailable`：该账号的缓存派生参数不可用；不猜参数、不重做会话初始化。
+- `existing_ffmpeg_unavailable`：安装 `brew install ffmpeg` 后重新导出。
+- `unsupported_media_format` / `wxgf_stream_unavailable`：当前格式不支持；GIF/WebP、旧版 XOR/V1 图片、视频、语音转写及 OCR 不属于此次支持范围。
+- `ambiguous_decoded_frames` / `blank_decoded_frame`：WXGF 解码无法得到唯一可信的非空帧，保留缺口。
+- 图片大小限制 32 MiB，像素限制 3000 万；只用可验证的绑定，不以时间相近或文件顺序替代来源。
+
+v0.2.x 旧导出不含完整图片定位信息，升级后重新 `export` 目标群与窗口到新目录；`prepare` 只重建阅读批次。完整项目更新后同步更新 Skill，无需删除虚拟环境或钥匙串。
 
 ## 数据处理与限制
 
@@ -153,4 +172,4 @@ open outputs/fixture-20260928/index.html
 
 ## 许可证
 
-本项目以 [MIT](LICENSE) 开源，复用文件保留原始 [MIT 许可](wechat_local/vendor/LICENSE) 与来源说明。MIT 允许使用、修改与再分发，但需保留版权及许可声明；许可文本见 [Open Source Initiative](https://opensource.org/license/mit)。不包含微信、macOS、SQLCipher 或字体二进制；外部依赖按各自许可证分发。非腾讯官方项目。
+本项目原创部分以 [MIT](LICENSE) 开源；图片 V2 解码与 macOS 参数派生模块按 [Apache-2.0](wechat_local/vendor/weixin-cli-LICENSE) 分发，复用的数据库读取代码保留原始 [MIT 许可](wechat_local/vendor/LICENSE)。具体文件与固定来源见 [NOTICE.md](NOTICE.md)。MIT 允许使用、修改与再分发，但需保留版权及许可声明；许可文本见 [Open Source Initiative](https://opensource.org/license/mit)。不包含微信、macOS、SQLCipher 或字体二进制；外部依赖按各自许可证分发。非腾讯官方项目。

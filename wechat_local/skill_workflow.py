@@ -125,7 +125,7 @@ def main():
     if selection['coverage_note']:data['metadata']['scope']+=' '+selection['coverage_note']
     dump(out/'messages.json',data)
     manifest=prepare(out)
-    print(json.dumps({'ok':True,**plan,'message_count':len(data['messages']),'part_count':manifest['part_count'],'manifest':str(out.resolve()/'review/manifest.json'),'summary_pending':True,'client_launch_performed':False},ensure_ascii=False,indent=2))
+    print(json.dumps({'ok':True,**plan,'message_count':len(data['messages']),'images':data['metadata'].get('images',{}),'part_count':manifest['part_count'],'manifest':str(out.resolve()/'review/manifest.json'),'summary_pending':True,'client_launch_performed':False},ensure_ascii=False,indent=2))
 
 if __name__=='__main__':
     try:main()

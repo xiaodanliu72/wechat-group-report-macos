@@ -25,3 +25,14 @@ Pillow 11.3.0、defusedxml 0.7.1 由 pip 安装；SQLCipher、Python 3.14 由用
 ## v0.2.0 版式贡献
 
 杂志版视觉布局基于项目维护者提供并授权纳入本项目的 Skill 迭代包，按本项目 MIT 许可证分发。集成时重写了事实数据绑定、HTML 转义与来源展示、跨日时间展示、动态分图和便携入口；未采用包内个人路径或关闭宿主安全限制的操作说明。
+
+
+## v0.3.0 图片读取
+
+`wechat_local/wechat_image_codec.py`、`wechat_local/wechat_image_keys.py` 的 V2 三段解码与 macOS 缓存派生逻辑以 Python 改编自 [erbanku/weixin-cli](https://github.com/erbanku/weixin-cli/tree/08af894594b4afd468e23e17dbd783f15403f13b)，固定提交 `08af894594b4afd468e23e17dbd783f15403f13b`，上游 Apache-2.0，完整许可保留在 `wechat_local/vendor/weixin-cli-LICENSE`。所查提交未提供单独 NOTICE 文件。
+
+对照源码：`src/attachment/image_key/macos.rs` 与 `src/attachment/decoder/v2.rs`。虽然后者注释仍写“骨架”，函数实际包含 AES-128-ECB、PKCS7、raw、XOR 完整拼接逻辑；本项目核对了函数实现，不据注释声称可用。移植自维护者另一本地项目中已验证的 Python 实现，并在本项目独立测试。
+
+修改：使用 macOS CommonCrypto；限制输入尺寸和密钥类型；校验分段边界、严格填充、容器与完整像素；只从当前账号容器的已有缓存文件名取得有限候选，按账号后缀筛选后用完整图片验证。不采用上游暴力枚举、密钥落盘、重签或重新登录路径。消息 `packed_info_data` 内 field 3 / field 4 文件哈希及目标群附件路径由本机结构与真实样本验证；未知字段不猜测。
+
+`wechat_local/media.py` 的附件定位、来源绑定、WXGF 帧验证与 HTML 集成为本项目 MIT 代码。FFmpeg 由使用者单独安装，未捆绑其二进制；其许可取决于所安装构建。Pillow 验证 PNG/JPEG；FFmpeg 只接收管道中的选定图片字节，未启用网络协议。

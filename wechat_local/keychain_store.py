@@ -84,6 +84,6 @@ def export(root,name,gid,start,end,out):
             data=read(frozen,keys,name,gid,start,end)
             data['metadata'].update(account_directory=Path(root).parent.name,
                 acquisition='本机专用钥匙串复用；验证后只读加密副本；未启动客户端或重新登录',verified_key_databases=checked)
-            export_files(out,data)
+            export_files(out,data,account=Path(root).parent)
             return data
     finally:keys.clear()

@@ -60,6 +60,7 @@ def read(root,keys,name,gid,start,end):
                 columns={x['name'] for x in db.query(f'PRAGMA table_info("{table}")')}
                 required={'local_id','server_id','local_type','create_time','real_sender_id','message_content'}
                 if not required<=columns: raise RuntimeError('本机消息结构与适配器不兼容')
+                packed=',hex(CASE WHEN (local_type & 4294967295)=3 THEN packed_info_data END) packed' if 'packed_info_data' in columns else ''
                 db.query('BEGIN;'); offset=0;count=0
                 stamp='(CASE WHEN create_time>=946684800000 AND create_time<4102444800000 THEN create_time/1000.0 ELSE create_time END)'
                 bounds=db.query(f'SELECT min(create_time) lo,max(create_time) hi FROM "{table}"')[0]
@@ -69,7 +70,7 @@ def read(root,keys,name,gid,start,end):
                 where=f'{stamp}>={start.timestamp()} AND {stamp}<{end.timestamp()}'
                 expected=int(db.query(f'SELECT count(*) n FROM "{table}" WHERE {where}')[0]['n'])
                 while True:
-                    batch=db.query(f'SELECT local_id,server_id,local_type,create_time,real_sender_id,hex(message_content) body FROM "{table}" WHERE {where} ORDER BY {stamp},local_id LIMIT 500 OFFSET {offset}')
+                    batch=db.query(f'SELECT local_id,server_id,local_type,create_time,real_sender_id,hex(message_content) body{packed} FROM "{table}" WHERE {where} ORDER BY {stamp},local_id LIMIT 500 OFFSET {offset}')
                     if not batch:break
                     for r in batch:
                         sender=db.query('SELECT user_name FROM Name2Id WHERE rowid='+str(int(r['real_sender_id'])))

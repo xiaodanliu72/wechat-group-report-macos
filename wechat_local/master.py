@@ -252,6 +252,7 @@ def rich_html(text):
 
 
 def render_html(folder, m):
+    from .media import image_source_html
     report, data = m['_report'], m['_data']
     byid = {item['id']: item for item in data['messages']}
     def refs(ids):
@@ -262,7 +263,7 @@ def render_html(folder, m):
             text = msg['text']
             if msg['details']: text += '\n' + json.dumps(msg['details'], ensure_ascii=False)
             articles.append('<article><strong>来源 ' + str(m['_sequence'][mid]) + '</strong> · <code>' + esc(mid) +
-                            '</code><p>' + esc(msg['time']) + ' · ' + esc(msg['sender']) + '</p><pre>' + esc(text) + '</pre></article>')
+                            '</code><p>' + esc(msg['time']) + ' · ' + esc(msg['sender']) + '</p><pre>' + esc(text) + '</pre>' + image_source_html(folder,msg) + '</article>')
         return '<details class="source"><summary>核对来源（' + str(len(ids)) + ' 条）</summary>' + ''.join(articles) + '</details>'
     def section(n, title, body):
         return '<section class="wrap"><div class="sec-head"><span class="no">' + str(n) + '</span><h2>' + title + '</h2></div>' + body + '</section>'

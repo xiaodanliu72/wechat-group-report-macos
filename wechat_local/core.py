@@ -65,9 +65,21 @@ def parse_body(raw, local_type, sender):
                     result['text']=node.get('transtext');result['details']['transcript_source']='微信消息中已有 voicetrans.transtext'
         except Exception:
             result['details']['parse_warning']='XML 无法安全解析，未推断内容'
+    elif typ==3:
+        try:
+            root=ET.fromstring(raw)
+            image=root if root.tag=='img' else root.find('.//img')
+            value=image.get('md5','') if image is not None else ''
+            if re.fullmatch('[0-9a-fA-F]{32}',value):result['details']['image_md5']=value.lower()
+        except Exception:
+            result['details']['parse_warning']='图片 XML 无法安全解析；仅尝试精确的消息缓存路径'
     if typ in (3,34,43,47) and not result['text']:
         result['text']=f'[{result["type"]}：未解析媒体内容]'
     if not result['text']: result['text']=f'[{result["type"]}]'
+    from .media import _sanitize_media_xml
+    result['text']=_sanitize_media_xml(result['text'])
+    quote=result['details'].get('quote')
+    if quote:quote['content']=_sanitize_media_xml(quote['content'])
     return result
 
 def normalize(rows, group_id, start, end):
@@ -76,6 +88,10 @@ def normalize(rows, group_id, start, end):
         t=timestamp(row['create_time'])
         if not start.timestamp()<=t<end.timestamp(): continue
         parsed=parse_body(row['body'],row['local_type'],row.get('sender_id'))
+        if parsed['type']=='图片' and row.get('packed'):
+            from .media import _packed_image_hash
+            image_hash=_packed_image_hash(bytes.fromhex(row['packed']))
+            if image_hash:parsed['details']['image_file_hash']=image_hash
         identity=f'{group_id}:server:{row["server_id"]}' if str(row.get('server_id','0')) not in ('0','','None') else f'{group_id}:{row["database"]}:{row["local_id"]}'
         mid=hashlib.sha256(identity.encode()).hexdigest()[:24]
         m={'id':mid,'server_id':str(row.get('server_id','0')),'local_id':str(row['local_id']),'database':row['database'],'timestamp':t,'time':dt.datetime.fromtimestamp(t,TZ).isoformat(),'sender_id':row.get('sender_id'),'sender':row.get('sender') or row.get('sender_id') or '未映射发送人',**parsed}
@@ -93,8 +109,11 @@ def package(rows,name,gid,start,end,fixture=False,extra=None):
     return {'metadata':meta,'messages':msgs}
 
 def dump(path,data): Path(path).write_text(json.dumps(data,ensure_ascii=False,indent=2),encoding='utf8')
-def export_files(folder,data):
+def export_files(folder,data,account=None):
     folder=Path(folder);folder.mkdir(parents=True,exist_ok=False,mode=0o700)
+    if account is not None:
+        from .media import extract_images
+        extract_images(account,data,folder)
     dump(folder/'messages.json',data)
     (folder/'messages.txt').write_text('\n\n'.join(f'[{m["id"]}] {m["time"]} {m["sender"]}\n{m["text"]}\n'+(json.dumps(m['details'],ensure_ascii=False) if m['details'] else '') for m in data['messages']),encoding='utf8')
 
@@ -129,6 +148,17 @@ def validate_messages(data):
     for key, value in expected.items():
         if type(meta.get(key)) is not type(value) or meta[key] != value:
             raise ValueError('导出统计与消息明细不一致：' + key)
+    if 'images' in meta:
+        records=[]
+        for m in messages:
+            if m['type']!='图片':continue
+            record=m.get('details',{}).get('media',{})
+            if record.get('status') not in ('ready','unavailable') or record.get('message_id')!=m['id'] or record.get('group_id')!=meta['group_id']:
+                raise ValueError('图片状态或消息来源绑定无效')
+            records.append(record)
+        counts={'total':len(records),'ready':sum(r['status']=='ready' for r in records),'unavailable':sum(r['status']=='unavailable' for r in records)}
+        if any(type(meta['images'].get(k)) is not int or meta['images'][k]!=v for k,v in counts.items()):
+            raise ValueError('图片统计与消息明细不一致')
     return True
 
 def validate_report(data,report):
@@ -156,7 +186,8 @@ def render(folder,report):
     info=f'{meta["start"]} 至 {meta["end"]}（Asia/Shanghai，包含起点、不包含终点）'
     coverage='群 ID：'+meta['group_id']+'；'+ '、'.join(f'{n} 条{k}' for k,n in meta['type_counts'].items())+'。来源编号对应 messages.json 顺序；稳定消息 ID 可在网页展开核对。'
     if data['messages']:coverage+=' 本窗口首条 '+data['messages'][0]['time']+'，末条 '+data['messages'][-1]['time']+'。'
-    coverage+=' 图片、音视频和附件正文未解析；群内通报与自述未作外部核实。'
+    images=meta.get('images',{})
+    coverage+=f' 图片已读取 {images.get("ready",0)} 张，未读取 {images.get("unavailable",meta["type_counts"].get("图片",0))} 张；可读图片需总结者实际查看。音视频和附件正文未解析；群内通报与自述未作外部核实。'
     lines=[title,info,f'{meta["message_count"]} 条消息 · {meta["speaker_count"]} 位已识别发言人',meta['scope'],coverage]
     parts=[f'<header><small>本地微信 · 可追溯报告</small><h1>{e(title)}</h1><p>{e(info)}</p><strong>{meta["message_count"]} 条消息 · {meta["speaker_count"]} 位已识别发言人</strong><p>{e(meta["scope"])}</p><p>{e(coverage)}</p></header>']
     def item_html(item):
@@ -167,7 +198,8 @@ def render(folder,report):
         for r in item['sources']:
             m=byid[r]; excerpt=m['text']
             if m['details']:excerpt+='\n'+json.dumps(m['details'],ensure_ascii=False)
-            refs+=f'<article><strong>消息 {sequence[r]}</strong> · <code>{e(r)}</code><p>{e(m["time"])} · {e(m["sender"])}</p><pre>{e(excerpt)}</pre></article>'
+            from .media import image_source_html
+            refs+=f'<article><strong>消息 {sequence[r]}</strong> · <code>{e(r)}</code><p>{e(m["time"])} · {e(m["sender"])}</p><pre>{e(excerpt)}</pre>'+image_source_html(folder,m)+'</article>'
         return f'<div class="item"><p>{e(text)}</p><details><summary>核对来源（{len(item["sources"])} 条）</summary>{refs}</details></div>'
     parts.append('<section><h2>简短概览</h2>'+item_html(report['overview'])+'</section>')
     for key,label in SECTIONS.items():
